@@ -5,14 +5,18 @@ const WebSocket = require('ws');
 
 const PORT = process.env.PORT || 10000;
 
-// Servidor HTTP para arquivos estáticos (pasta public)
 const server = http.createServer((req, res) => {
     let filePath = path.join(__dirname, 'public', req.url === '/' ? 'index.html' : req.url);
     let extname = String(path.extname(filePath)).toLowerCase();
     
     const mimeTypes = {
-        '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
-        '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpg', '.svg': 'image/svg+xml'
+        '.html': 'text/html',
+        '.js': 'text/javascript',
+        '.css': 'text/css',
+        '.json': 'application/json',
+        '.png': 'image/png',
+        '.jpg': 'image/jpg',
+        '.svg': 'image/svg+xml'
     };
 
     let contentType = mimeTypes[extname] || 'application/octet-stream';
@@ -31,7 +35,7 @@ const server = http.createServer((req, res) => {
 });
 
 const wss = new WebSocket.Server({ server });
-const salas = {}; // { 'CODIGO_SALA': Map(ws => dadosCiclista) }
+const salas = {};
 
 wss.on('connection', (ws) => {
     let minhaSalaAtual = null;
@@ -49,7 +53,6 @@ wss.on('connection', (ws) => {
                 return;
             }
 
-            // Se mudou de sala, limpa da anterior
             if (minhaSalaAtual && minhaSalaAtual !== codigoSala) {
                 removerClienteDaSala(ws, minhaSalaAtual);
             }
@@ -60,7 +63,6 @@ wss.on('connection', (ws) => {
                 salas[minhaSalaAtual] = new Map();
             }
 
-            // Salva os dados exatos do ciclista
             salas[minhaSalaAtual].set(ws, {
                 id: meuIdUnico,
                 n: nomeUsuario,
@@ -75,7 +77,6 @@ wss.on('connection', (ws) => {
 
             const payload = JSON.stringify({ ciclistas: ciclistasNaSala });
 
-            // Envia para todos na sala
             salas[minhaSalaAtual].forEach((_, clientWs) => {
                 if (clientWs.readyState === WebSocket.OPEN) {
                     clientWs.send(payload);
