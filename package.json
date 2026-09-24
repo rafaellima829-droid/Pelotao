@@ -1,13 +1,12 @@
 {
   "name": "pelotao-cloud",
   "version": "1.0.0",
-  "description": "MVP de rastreamento de pelotão em tempo real",
+  "description": "Pelotão Cloud",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
     "ws": "^8.16.0"
   }
 }
