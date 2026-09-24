@@ -1,50 +1,81 @@
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const WebSocket = require('ws');
 
 const PORT = process.env.PORT || 10000;
-const wss = new WebSocket.Server({ port: PORT });
 
-// Estrutura para armazenar as salas e seus ciclistas conectados
-// Formato: { 'CODIGO_SALA': { wsClient: { id, n, la, lo, av, c } } }
-const salas = {};
+// Servidor HTTP para arquivos estáticos (pasta public)
+const server = http.createServer((req, res) => {
+    let filePath = path.join(__dirname, 'public', req.url === '/' ? 'index.html' : req.url);
+    let extname = String(path.extname(filePath)).toLowerCase();
+    
+    const mimeTypes = {
+        '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
+        '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpg', '.svg': 'image/svg+xml'
+    };
+
+    let contentType = mimeTypes[extname] || 'application/octet-stream';
+
+    fs.readFile(filePath, (error, content) => {
+        if (error) {
+            fs.readFile(path.join(__dirname, 'public', 'index.html'), (err, htmlContent) => {
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(htmlContent, 'utf-8');
+            });
+        } else {
+            res.writeHead(200, { 'Content-Type': contentType });
+            res.end(content, 'utf-8');
+        }
+    });
+});
+
+const wss = new WebSocket.Server({ server });
+const salas = {}; // { 'CODIGO_SALA': Map(ws => dadosCiclista) }
 
 wss.on('connection', (ws) => {
     let minhaSalaAtual = null;
-    let meuIdUnico = Math.random().toString(36.substring(2, 9));
+    let meuIdUnico = 'user-' + Math.random().toString(36).substring(2, 8);
+    console.log(`[WS] Novo cliente conectado (${meuIdUnico})`);
 
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
-            const codigoSala = data.s ? data.s.toUpperCase() : null;
+            const codigoSala = data.s ? data.s.trim().toUpperCase() : null;
+            const nomeUsuario = data.n ? data.n.trim() : null;
 
-            if (!codigoSala || !data.n) return;
+            if (!codigoSala || !nomeUsuario) {
+                console.log("[WS] Mensagem ignorada: falta sala ou nome.", data);
+                return;
+            }
 
-            // Se mudou de sala, remove da sala anterior
+            // Se mudou de sala, limpa da anterior
             if (minhaSalaAtual && minhaSalaAtual !== codigoSala) {
                 removerClienteDaSala(ws, minhaSalaAtual);
             }
 
             minhaSalaAtual = codigoSala;
 
-            // Inicializa a sala se ela não existir
             if (!salas[minhaSalaAtual]) {
                 salas[minhaSalaAtual] = new Map();
             }
 
-            // Armazena ou atualiza os dados do ciclista nesta sala
+            // Salva os dados exatos do ciclista
             salas[minhaSalaAtual].set(ws, {
                 id: meuIdUnico,
-                n: data.n,   // Nome
-                la: data.la, // Latitude
-                lo: data.lo, // Longitude
-                av: data.av, // Avatar
-                c: data.c    // Cargo (lider, vassoura, membro)
+                n: nomeUsuario,
+                la: data.la,
+                lo: data.lo,
+                av: data.av || '',
+                c: data.c || 'membro'
             });
 
-            // Coleta todos os ciclistas conectados APENAS nesta sala
             const ciclistasNaSala = Array.from(salas[minhaSalaAtual].values());
+            console.log(`[WS] Sala [${minhaSalaAtual}] tem ${ciclistasNaSala.length} ciclista(s) ativo(s).`);
+
             const payload = JSON.stringify({ ciclistas: ciclistasNaSala });
 
-            // Envia a atualização para todos os clientes conectados nesta sala
+            // Envia para todos na sala
             salas[minhaSalaAtual].forEach((_, clientWs) => {
                 if (clientWs.readyState === WebSocket.OPEN) {
                     clientWs.send(payload);
@@ -52,11 +83,12 @@ wss.on('connection', (ws) => {
             });
 
         } catch (e) {
-            console.error("Erro ao processar mensagem do WebSocket:", e);
+            console.error("[WS] Erro ao processar mensagem JSON:", e);
         }
     });
 
     ws.on('close', () => {
+        console.log(`[WS] Cliente desconectado (${meuIdUnico})`);
         if (minhaSalaAtual) {
             removerClienteDaSala(ws, minhaSalaAtual);
         }
@@ -66,12 +98,9 @@ wss.on('connection', (ws) => {
 function removerClienteDaSala(ws, sala) {
     if (salas[sala]) {
         salas[sala].delete(ws);
-
-        // Se a sala ficou vazia, remove ela da memória para economizar recursos
         if (salas[sala].size === 0) {
             delete salas[sala];
         } else {
-            // Notifica os demais integrantes que alguém saiu
             const ciclistasNaSala = Array.from(salas[sala].values());
             const payload = JSON.stringify({ ciclistas: ciclistasNaSala });
             salas[sala].forEach((_, clientWs) => {
@@ -83,4 +112,6 @@ function removerClienteDaSala(ws, sala) {
     }
 }
 
-console.log(`Servidor WebSocket do Pelotão Cloud rodando na porta ${PORT}`);
+server.listen(PORT, () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
+});
